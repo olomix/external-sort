@@ -351,12 +351,11 @@ func TestSort3(t *testing.T) {
 }
 func TestSort4(t *testing.T) {
 	itemSize := 16
-	buf := []byte(nil)
-	itemsToWrite := 27525120 / 10
+	itemsToWrite := 27525120 / 1
 	r := require.New(t)
 	srt, err := New(itemSize, func(a, b []byte) bool {
 		return a[0] < b[0]
-	}, buf)
+	}, nil)
 	r.NoError(err)
 	defer func() {
 		if err := srt.Close(); err != nil {
@@ -364,34 +363,36 @@ func TestSort4(t *testing.T) {
 		}
 	}()
 
-	var data [][]byte
+	rndData := make([]byte, itemsToWrite*itemSize)
+	n, err := rand.Read(rndData)
+	r.NoError(err)
+	r.Equal(itemsToWrite*itemSize, n)
 	for i := 0; i < itemsToWrite; i++ {
-		item := make([]byte, itemSize)
-		n, err := rand.Read(item)
-		r.NoError(err)
-		r.Equal(len(item), n)
-		//data = append(data, item)
-		n, err = srt.Write(item)
-		r.NoError(err)
-		r.Equal(itemSize, n)
+		//r.NoError(err)
+		//r.Equal(len(item), n)
+		n, err = srt.Write(rndData[i*itemSize : (i+1)*itemSize])
+		_ = err
+		_ = n
+		//r.NoError(err)
+		//r.Equal(itemSize, n)
 	}
 
 	return
 	sortedData := bytes.NewBuffer(nil)
-	n, err := srt.WriteTo(sortedData)
+	n2, err := srt.WriteTo(sortedData)
 	r.NoError(err)
-	r.Equal(n, int64(itemsToWrite*itemSize))
+	r.Equal(n2, int64(itemsToWrite*itemSize))
 
-	sort.SliceStable(data, func(i, j int) bool {
-		return data[i][0] < data[j][0]
-	})
-
-	flatData := make([]byte, 0, itemsToWrite*itemSize)
-	for i := range data {
-		flatData = append(flatData, data[i]...)
-	}
-
-	r.Equal(flatData, sortedData.Bytes())
+	//sort.SliceStable(data, func(i, j int) bool {
+	//	return data[i][0] < data[j][0]
+	//})
+	//
+	//flatData := make([]byte, 0, itemsToWrite*itemSize)
+	//for i := range data {
+	//	flatData = append(flatData, data[i]...)
+	//}
+	//
+	//r.Equal(flatData, sortedData.Bytes())
 }
 
 func TestSort5(t *testing.T) {
@@ -404,5 +405,21 @@ func TestSort5(t *testing.T) {
 	for i := 0; i < sz; i += 16 {
 		copy(c[i:i+16], b[i:])
 	}
+	copy(c, b)
+}
+
+func TestSort6(t *testing.T) {
+	sz := 27525120 * 16
+	b := make([]byte, sz)
+	rand.Read(b)
+	t.Log(len(b) / 1024 / 1024)
+
+	c := make([]byte, sz)
+	for i := range b {
+		c[i] = b[i]
+	}
+	//for i := 0; i < sz; i += 16 {
+	//	copy(c[i:i+16], b[i:])
+	//}
 	copy(c, b)
 }

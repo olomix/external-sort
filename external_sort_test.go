@@ -2,12 +2,14 @@ package external_sort
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io/ioutil"
 	"math/rand"
 	"sort"
 	"testing"
 
+	go_fast_sort "github.com/olomix/go-fast-sort"
 	"github.com/stretchr/testify/require"
 )
 
@@ -349,12 +351,18 @@ func TestSort3(t *testing.T) {
 		})
 	}
 }
+
+func ui64(in []byte) uint64 {
+	return binary.LittleEndian.Uint64(in)
+}
 func TestSort4(t *testing.T) {
 	itemSize := 16
-	itemsToWrite := 27525120 / 1
+	itemsToWrite := 27_525_120 / 1
+	// itemsToWrite = 6553600 // 100M
+	itemsToWrite = 6_553_600 / 100
 	r := require.New(t)
 	srt, err := New(itemSize, func(a, b []byte) bool {
-		return a[0] < b[0]
+		return ui64(a) < ui64(b)
 	}, nil)
 	r.NoError(err)
 	defer func() {
@@ -377,7 +385,6 @@ func TestSort4(t *testing.T) {
 		//r.Equal(itemSize, n)
 	}
 
-	return
 	sortedData := bytes.NewBuffer(nil)
 	n2, err := srt.WriteTo(sortedData)
 	r.NoError(err)
@@ -386,6 +393,7 @@ func TestSort4(t *testing.T) {
 	//sort.SliceStable(data, func(i, j int) bool {
 	//	return data[i][0] < data[j][0]
 	//})
+
 	//
 	//flatData := make([]byte, 0, itemsToWrite*itemSize)
 	//for i := range data {
@@ -395,31 +403,134 @@ func TestSort4(t *testing.T) {
 	//r.Equal(flatData, sortedData.Bytes())
 }
 
-func TestSort5(t *testing.T) {
-	sz := 27525120 * 16
-	b := make([]byte, sz)
-	rand.Read(b)
-	t.Log(len(b) / 1024 / 1024)
+func TestSortIsStable(t *testing.T) {
+	r := require.New(t)
 
-	c := make([]byte, sz)
-	for i := 0; i < sz; i += 16 {
-		copy(c[i:i+16], b[i:])
+	itemSize := 16
+	itemsToWrite := 27_525_120 / 1
+	//itemsToWrite = 6_553_600 / 1
+
+	lt := func(a, b []byte) bool { return ui64(a) < ui64(b) }
+	srt, err := New(itemSize, lt, nil)
+	r.NoError(err)
+	defer func() {
+		if err := srt.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	rndData := make([]byte, itemsToWrite*itemSize)
+	// to guarantee equal records (for testing stable), make max
+	// key value less then total number of keys
+	maxInt := int64(float64(itemsToWrite) * 0.9)
+	for i := 0; i < itemsToWrite; i++ {
+		key := uint64(rand.Int63n(maxInt))
+		binary.LittleEndian.PutUint64(rndData[i*itemSize:], key)
+		binary.LittleEndian.PutUint64(rndData[(i*itemSize)+8:], uint64(i))
 	}
-	copy(c, b)
+
+	var n int
+	for i := 0; i < itemsToWrite; i++ {
+		n, err = srt.Write(rndData[i*itemSize : (i+1)*itemSize])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != itemSize {
+			t.Fatal(n)
+		}
+	}
+
+	sortedData := bytes.NewBuffer(nil)
+	n2, err := srt.WriteTo(sortedData)
+	r.NoError(err)
+	r.Equal(n2, int64(itemsToWrite*itemSize))
+
+	sortedBuf := sortedData.Bytes()
+	prevKey := ui64(sortedBuf)
+	prevVal := ui64(sortedBuf[8:])
+
+	for i := 1; i < itemsToWrite; i++ {
+		key := ui64(sortedBuf[i*itemSize:])
+		val := ui64(sortedBuf[i*itemSize+8:])
+		if key < prevKey {
+			t.Fatalf(
+				"at %v key %v less then previous key %v", i, key, prevKey,
+			)
+		} else if key == prevKey && key < prevKey {
+			t.Fatalf(
+				"at %v eys are are equal, "+
+					"but current val %v is less then previous %v",
+				i, val, prevVal,
+			)
+		}
+		prevKey = key
+		prevVal = val
+	}
+	t.Logf("successfuly checked buf of %v bytes", len(sortedBuf))
 }
 
-func TestSort6(t *testing.T) {
-	sz := 27525120 * 16
-	b := make([]byte, sz)
-	rand.Read(b)
-	t.Log(len(b) / 1024 / 1024)
+func TestStableSortTime(t *testing.T) {
+	itemSize := 16
+	itemsToWrite := 27_525_120 / 1
+	// itemsToWrite = 6553600 // 100M
+	itemsToWrite = 6_553_600 / 1
+	r := require.New(t)
 
-	c := make([]byte, sz)
-	for i := range b {
-		c[i] = b[i]
-	}
-	//for i := 0; i < sz; i += 16 {
-	//	copy(c[i:i+16], b[i:])
-	//}
-	copy(c, b)
+	rndData := make([]byte, itemsToWrite*itemSize)
+	n, err := rand.Read(rndData)
+	r.NoError(err)
+	r.Equal(itemsToWrite*itemSize, n)
+
+	t.Logf("the length of rndData is %v", len(rndData))
+
+	sort.Stable(bytesSortUInt64{
+		arr:   rndData,
+		elmSz: 16,
+		tmp:   make([]byte, 16),
+	})
+}
+
+func btsLt(a, b []byte) bool {
+	return ui64(a) < ui64(b)
+}
+
+func TestTimsortTime(t *testing.T) {
+	itemSize := 16
+	itemsToWrite := 27_525_120 / 1
+	// itemsToWrite = 6553600 // 100M
+	itemsToWrite = 6_553_600 / 1
+	r := require.New(t)
+
+	rndData := make([]byte, itemsToWrite*itemSize)
+	n, err := rand.Read(rndData)
+	r.NoError(err)
+	r.Equal(itemsToWrite*itemSize, n)
+
+	t.Logf("the length of rndData is %v", len(rndData))
+
+	ts2 := go_fast_sort.NewBytesTimSorter(
+		rndData, itemSize, btsLt, make([]byte, len(rndData)/2),
+	)
+
+	go_fast_sort.TimSort2(ts2)
+}
+
+type bytesSortUInt64 struct {
+	arr   []byte
+	elmSz int
+	tmp   []byte
+}
+
+func (b bytesSortUInt64) Len() int {
+	return len(b.arr) / b.elmSz
+}
+
+func (b bytesSortUInt64) Less(i, j int) bool {
+	return ui64(b.arr[i*b.elmSz:]) < ui64(b.arr[j*b.elmSz:])
+}
+
+func (b bytesSortUInt64) Swap(i, j int) {
+	copy(b.tmp, b.arr[j*b.elmSz:])
+	copy(b.arr[j*b.elmSz:(j+1)*b.elmSz], b.arr[i*b.elmSz:])
+	copy(b.arr[i*b.elmSz:], b.tmp)
 }

@@ -6,7 +6,8 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"sort"
+
+	go_fast_sort "github.com/olomix/go-fast-sort"
 )
 
 type Sorter struct {
@@ -30,6 +31,9 @@ func New(
 	lessFn func(a, b []byte) bool,
 	buf []byte,
 ) (*Sorter, error) {
+	// TODO two thirds of buf size uses as buffer and one third
+	//      as buf for sorting
+
 	if itemSize <= 0 {
 		return nil, errors.New("item size should be greater then zero")
 	}
@@ -110,8 +114,6 @@ func (s *Sorter) WriteTo(w io.Writer) (int64, error) {
 		return 0, s.err
 	}
 	return int64(n), nil
-
-	panic("not implemented")
 }
 
 // Use the same buf for new sort
@@ -164,7 +166,12 @@ func (s *Sorter) flush() error {
 }
 
 func (s *Sorter) sort() {
-	sort.Stable(sortedBuf{s})
+	ts2 := go_fast_sort.NewBytesTimSorter(
+		s.buf[:s.bufIdx], s.itemSize, s.lessFn,
+		make([]byte, s.bufIdx/2),
+	)
+	go_fast_sort.TimSort2(ts2)
+	//sort.Stable(sortedBuf{s})
 }
 
 func (s *Sorter) sortAndFlush() error {

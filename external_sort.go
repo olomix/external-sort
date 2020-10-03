@@ -115,8 +115,19 @@ func (s *Sorter) WriteTo(w io.Writer) (int64, error) {
 }
 
 // Use the same buf for new sort
-func (s *Sorter) Reset() {
-	panic("not implemented")
+func (s *Sorter) Reset() error {
+	if s.err != nil {
+		return s.err
+	}
+	if s.tempFile != nil {
+		_, s.err = s.tempFile.Seek(0, 0)
+		if s.err != nil {
+			return s.err
+		}
+	}
+	s.bufIdx = 0
+	s.sizeWritten = 0
+	return nil
 }
 
 func (s *Sorter) Close() error {
@@ -127,8 +138,9 @@ func (s *Sorter) Close() error {
 		if s.err = os.Remove(s.tempFile.Name()); s.err != nil {
 			return s.err
 		}
+		s.tempFile = nil
 	}
-	return nil
+	return s.Reset()
 }
 
 func (s *Sorter) flush() error {
@@ -169,7 +181,6 @@ func (s *Sorter) sort() {
 		make([]byte, s.bufIdx/2),
 	)
 	go_fast_sort.TimSort2(ts2)
-	//sort.Stable(sortedBuf{s})
 }
 
 func (s *Sorter) sortAndFlush() error {

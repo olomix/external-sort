@@ -12,7 +12,6 @@ import (
 
 type Sorter struct {
 	itemSize    int
-	itemBuf     []byte
 	TempDir     string
 	lessFn      func(a, b []byte) bool
 	buf         []byte
@@ -58,7 +57,6 @@ func New(
 		buf:      buf,
 		itemSize: itemSize,
 		lessFn:   lessFn,
-		itemBuf:  make([]byte, itemSize),
 	}, nil
 }
 
@@ -177,29 +175,6 @@ func (s *Sorter) sort() {
 func (s *Sorter) sortAndFlush() error {
 	s.sort()
 	return s.flush()
-}
-
-type sortedBuf struct {
-	s *Sorter
-}
-
-func (s sortedBuf) Len() int {
-	return s.s.bufIdx / s.s.itemSize
-}
-
-func (s sortedBuf) Less(i, j int) bool {
-	a := s.s.buf[i*s.s.itemSize : (i+1)*s.s.itemSize]
-	b := s.s.buf[j*s.s.itemSize : (j+1)*s.s.itemSize]
-	return s.s.lessFn(a, b)
-}
-
-func (s sortedBuf) Swap(i, j int) {
-	copy(s.s.itemBuf, s.s.buf[i*s.s.itemSize:(i+1)*s.s.itemSize])
-	copy(
-		s.s.buf[i*s.s.itemSize:(i+1)*s.s.itemSize],
-		s.s.buf[j*s.s.itemSize:(j+1)*s.s.itemSize],
-	)
-	copy(s.s.buf[j*s.s.itemSize:(j+1)*s.s.itemSize], s.s.itemBuf)
 }
 
 func (s *Sorter) merge(w io.Writer) error {

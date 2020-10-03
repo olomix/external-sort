@@ -82,7 +82,6 @@ func TestSort(t *testing.T) {
 	}
 	s := &Sorter{
 		itemSize: 2,
-		itemBuf:  make([]byte, 2),
 		lessFn:   func(a, b []byte) bool { return a[0] < b[0] },
 		buf:      in,
 		bufIdx:   8,

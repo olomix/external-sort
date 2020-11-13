@@ -107,9 +107,11 @@ func (s *Sorter) WriteTo(w io.Writer) (int64, error) {
 
 	n := s.sizeWritten
 	s.sizeWritten = 0
-	s.err = s.tempFile.Truncate(0)
-	if s.err != nil {
-		return 0, s.err
+	if s.tempFile != nil {
+		s.err = s.tempFile.Truncate(0)
+		if s.err != nil {
+			return 0, s.err
+		}
 	}
 	return int64(n), nil
 }
@@ -199,6 +201,11 @@ func (s *Sorter) merge(w io.Writer) error {
 	if s.sizeWritten%s.itemSize != 0 {
 		s.err = errors.New("size written is not dividable by item size")
 		return s.err
+	}
+
+	// nothing was written
+	if s.sizeWritten == 0 {
+		return nil
 	}
 
 	bufsNum := (s.sizeWritten + (len(s.buf) - 1)) / len(s.buf)

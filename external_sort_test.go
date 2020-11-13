@@ -1,6 +1,7 @@
 package external_sort
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -532,4 +533,28 @@ func (b bytesSortUInt64) Swap(i, j int) {
 	copy(b.tmp, b.arr[j*b.elmSz:])
 	copy(b.arr[j*b.elmSz:(j+1)*b.elmSz], b.arr[i*b.elmSz:])
 	copy(b.arr[i*b.elmSz:], b.tmp)
+}
+
+func TestEmptySorting(t *testing.T) {
+	sorter, err := New(33, func(a, b []byte) bool {
+		return a[0] < b[0]
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := &bytes.Buffer{}
+	w := bufio.NewWriter(buf)
+	n, err := sorter.WriteTo(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatal(n)
+	}
+	if err = w.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(buf.Bytes(), []byte{}) {
+		t.Fatal(buf.Bytes())
+	}
 }

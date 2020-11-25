@@ -255,7 +255,9 @@ func TestSort2(t *testing.T) {
 	}, make([]byte, itemSize*4))
 	r.NoError(err)
 
-	itemsToWrite := 10
+	// TODO increase this greater then 9 and ensure we can pre-merge
+	//      parts to use not very large buffer to merge file parts
+	itemsToWrite := 9
 
 	var data [][]byte
 	for i := 0; i < itemsToWrite; i++ {
@@ -295,7 +297,7 @@ func TestSort3(t *testing.T) {
 			title:        "general",
 			itemSize:     4*1024 - 1,
 			buf:          make([]byte, (4*1024-1)*4),
-			itemsToWrite: 10,
+			itemsToWrite: 9,
 		},
 		{
 			title:        "large data",
@@ -306,9 +308,6 @@ func TestSort3(t *testing.T) {
 	}
 	for i := range testCases {
 		tc := testCases[i]
-		if tc.title != "large data" {
-			continue
-		}
 		t.Run(tc.title, func(t *testing.T) {
 			r := require.New(t)
 			srt, err := New(tc.itemSize, func(a, b []byte) bool {
@@ -327,7 +326,7 @@ func TestSort3(t *testing.T) {
 				n, err := rand.Read(item)
 				r.NoError(err)
 				r.Equal(len(item), n)
-				//data = append(data, item)
+				data = append(data, item)
 				n, err = srt.Write(item)
 				r.NoError(err)
 				r.Equal(tc.itemSize, n)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
 
 	go_fast_sort "github.com/olomix/go-fast-sort"
@@ -15,6 +16,8 @@ type Sorter struct {
 	TempDir     string
 	lessFn      func(a, b []byte) bool
 	buf         []byte
+	bufCap      int    // full capacity of buf we can use for merging
+	tmBuf       []byte // buffer for tim-sort algorithm
 	bufIdx      int
 	err         error
 	sizeWritten int
@@ -30,33 +33,50 @@ func New(
 	lessFn func(a, b []byte) bool,
 	buf []byte,
 ) (*Sorter, error) {
-	// TODO two thirds of buf size uses as buffer and one third
-	//      as buf for sorting
-
 	if itemSize <= 0 {
 		return nil, errors.New("item size should be greater then zero")
 	}
 
-	if buf == nil {
-		if itemSize < defaultBufSize {
-			buf = make([]byte, defaultBufSize/itemSize*itemSize)
-		} else {
-			buf = make([]byte, itemSize)
+	var timSortBufItems int
+	var bufItems int
+	var bufCap int
+	if buf != nil {
+
+		itemsInBuf := len(buf) / itemSize
+		log.Printf("OK %v %v %v", itemsInBuf, len(buf), itemSize)
+		if itemsInBuf < 3 {
+			return nil, errors.New(
+				"buf len is too small, should be 3*itemSize at least",
+			)
 		}
-	}
 
-	if len(buf) < 0 {
-		return nil, errors.New("buf size should be at least item size")
-	}
+		timSortBufItems = itemsInBuf / 3
+		if timSortBufItems*3 > itemsInBuf {
+			timSortBufItems++
+		}
 
-	if len(buf)%itemSize != 0 {
-		return nil, errors.New("buf size should be dividable by item size")
+		bufItems = itemsInBuf - timSortBufItems
+		bufCap = bufItems * itemSize
+
+	} else {
+		if 3*itemSize > defaultBufSize {
+			return nil, errors.New(
+				"allocated buffer required for such a big items",
+			)
+		}
+
+		timSortBufItems = (defaultBufSize / itemSize) / 3
+		bufItems = timSortBufItems * 2
+		bufCap = (bufItems + timSortBufItems) * itemSize
+		buf = make([]byte, bufCap)
 	}
 
 	return &Sorter{
-		buf:      buf,
+		buf:      buf[:bufItems*itemSize],
+		tmBuf:    buf[bufItems*itemSize : (bufItems+timSortBufItems)*itemSize],
 		itemSize: itemSize,
 		lessFn:   lessFn,
+		bufCap:   bufCap,
 	}, nil
 }
 
@@ -179,8 +199,7 @@ func (s *Sorter) flush() error {
 
 func (s *Sorter) sort() {
 	ts2 := go_fast_sort.NewBytesTimSorter(
-		s.buf[:s.bufIdx], s.itemSize, s.lessFn,
-		make([]byte, s.bufIdx/2),
+		s.buf[:s.bufIdx], s.itemSize, s.lessFn, s.tmBuf,
 	)
 	go_fast_sort.TimSort2(ts2)
 }
@@ -208,6 +227,7 @@ func (s *Sorter) merge(w io.Writer) error {
 		return nil
 	}
 
+	buf := s.buf[:s.bufCap]
 	bufsNum := (s.sizeWritten + (len(s.buf) - 1)) / len(s.buf)
 
 	minBufSize := 4 * 1024
@@ -217,7 +237,7 @@ func (s *Sorter) merge(w io.Writer) error {
 		minBufSize = (minBufSize / s.itemSize) * s.itemSize
 	}
 
-	if len(s.buf)/bufsNum < minBufSize {
+	if len(buf)/bufsNum < minBufSize {
 		minSize := minBufSize * bufsNum
 		return fmt.Errorf(
 			"buffer is too small to merge data, at least it should be %v "+
@@ -225,7 +245,7 @@ func (s *Sorter) merge(w io.Writer) error {
 		)
 	}
 
-	bufSize := (len(s.buf) / bufsNum / s.itemSize) * s.itemSize
+	bufSize := (len(buf) / bufsNum / s.itemSize) * s.itemSize
 	if bufSize <= 0 {
 		return fmt.Errorf("[assertion] unexpected bufSize: %v", bufSize)
 	}
@@ -237,7 +257,7 @@ func (s *Sorter) merge(w io.Writer) error {
 			fEnd = s.sizeWritten
 		}
 		bufs[i], s.err = newBB(
-			s.buf[i*bufSize:(i+1)*bufSize],
+			buf[i*bufSize:(i+1)*bufSize],
 			s.itemSize,
 			s.tempFile,
 			len(s.buf)*i,

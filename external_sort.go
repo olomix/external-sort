@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 
 	go_fast_sort "github.com/olomix/go-fast-sort"
@@ -43,7 +42,6 @@ func New(
 	if buf != nil {
 
 		itemsInBuf := len(buf) / itemSize
-		log.Printf("OK %v %v %v", itemsInBuf, len(buf), itemSize)
 		if itemsInBuf < 3 {
 			return nil, errors.New(
 				"buf len is too small, should be 3*itemSize at least",
